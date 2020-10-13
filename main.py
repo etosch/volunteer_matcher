@@ -28,7 +28,11 @@ DATES = ['10/19', '10/20', '10/21', '10/22', '10/23', '10/24', '10/25']
 SEND_ME_ANYWHERE = 'Send me anywhere!'
 COUNTY_REGEX = r"\([^)]*\)"
 DATE_REGEX = r"\(([^\)]*)\)"
+
+# Cache for directions already fetched: {(voting_loc.id, volunteer.id): {'value': seconds, 'text': '15 min'}}
 duration_cache = {}
+
+# Number of elements fetched from Google Maps. Distance Matrix API charges by elements. 
 num_google_maps_elements = 0
 
 # Distance Matrix API must be enabled in GCP and this is the API key
@@ -181,11 +185,15 @@ def chunks(lst, n):
 
 
 def match_vol_to_voting_loc(date, vl, potential_vids, vols_by_id, send_to_county_by_date, send_me_anywhere_by_date):
+	# First, try to fill spot with volunteers whose directions have been fetched. If their distance is in 
+	# bounds, they have already been matched to the location on another date.
 	cached_volunteers = try_to_fill_from_cache(vl, potential_vids, num_to_match=1)
 
 	if cached_volunteers:
 		return cached_volunteers[0]
 
+	# Remove all cached volunteers from the list of potential volunteers since they've already been 
+	# considered above.
 	potential_vids = list(potential_vids.difference(get_all_volunteers_from_cache(vl.id)))
 
 	for c in chunks(potential_vids, BATCH_SIZE):
@@ -199,10 +207,12 @@ def match_vol_to_voting_loc(date, vl, potential_vids, vols_by_id, send_to_county
 				_, v_id = key
 				return (v_id, directions[key])
 
+	# If no volunteer could be matched, then check volunteers who can go anywhere in the county
 	county = vl['county'].strip()
 	if len(send_to_county_by_date[date][county]) > 0:
 		return (send_to_county_by_date[date][county].pop(), {'text': 'Send me to county', 'value': 0})
 
+	# If still no one was matched, then fill with a "Send me anywhere!" volunteer
 	if len(send_me_anywhere_by_date[date]) > 0:
 		return (send_me_anywhere_by_date[date].pop(), {'text': 'Send me anywhere', 'value': 0})
 
@@ -220,6 +230,8 @@ def match_by_date(date, volunteers_by_county, voting_locs, vols_by_id, raw_volun
 
 	open_spots_by_voting_loc = {}
 
+	# Assign volunteers round-robin. In order of rank, assign 1 volunteer to each location, then assign another
+	# until we reach the quota. 
 	for rank in sorted_vl_ranks:
 		for i in range(PER_LOCATION_QUOTA):
 			for vl in vls_by_rank[rank]:
