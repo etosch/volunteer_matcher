@@ -19,10 +19,10 @@ PER_LOCATION_QUOTA = 3
 BATCH_SIZE = 1
 
 # Whether to actually call google maps
-DRY_RUN = True
+DRY_RUN = False
 
 # The dates to match on
-DATES = ['10/19', '10/20', '10/21', '10/22', '10/23', '10/24', '10/25']
+DATES = ['10/22', '10/23', '10/24', '10/25']
 
 
 SEND_ME_ANYWHERE = 'Send me anywhere!'
@@ -279,11 +279,11 @@ def match_by_date(date, volunteers_by_county, voting_locs, vols_by_id, raw_volun
 		for vl in voting_locs:
 			matched = matched_volunteers_by_loc[vl.id]
 			for v, duration in matched:
-				csv_writer.writerow([date, vl['rank'], vl['county'], vl['precinct_name'], vl['voting_location'], f"{vols_by_id[v]['first_name']} {vols_by_id[v]['last_name']}", vols_by_id[v].addr_str, duration['text']])
+				csv_writer.writerow([date, vl['rank'], vl['county'], vl['precinct_name'].strip(), vl['voting_location'].strip(), f"{vols_by_id[v]['first_name']} {vols_by_id[v]['last_name']}", vols_by_id[v].addr_str, duration['text']])
 		
 			if open_spots_by_voting_loc.get(vl.id):
 				for i in range(open_spots_by_voting_loc[vl.id]):
-					csv_writer.writerow([date, vl['rank'], vl['county'], vl['precinct_name'], vl['voting_location'], 'Unfilled', '', ''])
+					csv_writer.writerow([date, vl['rank'], vl['county'], vl['precinct_name'].strip(), vl['voting_location'].strip(), 'Unfilled', '', ''])
 
 
 	with open(f'output/{filename_date}_open_spots.csv', 'w', newline='') as open_spots:
@@ -291,7 +291,7 @@ def match_by_date(date, volunteers_by_county, voting_locs, vols_by_id, raw_volun
 		csv_writer.writerow(['Date', 'Rank', 'County', 'Name', 'Voting location', 'Address', 'Num Open Spots'])
 		for vl_id, num_spots in open_spots_by_voting_loc.items():
 			vl = vls_by_id[vl_id]
-			csv_writer.writerow([date, vl['rank'], vl['county'], vl['precinct_name'], vl['voting_location'], vl['voting_addr'], num_spots])
+			csv_writer.writerow([date, vl['rank'], vl['county'], vl['precinct_name'].strip(), vl['voting_location'].strip(), vl['voting_addr'].strip(), num_spots])
 
 
 def voting_loc_has_date(d, vl):
