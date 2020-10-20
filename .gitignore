@@ -5,3 +5,4 @@ output/
 output_2_vols/
 voting_locs.csv
 volunteers.csv
+*.csv

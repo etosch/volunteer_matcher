@@ -4,7 +4,7 @@ This is a script to match volunteers to polling locations on different dates.
 
 ## How to run
 
-One time setup: Install python 3, create a virtual env, and install requirements
+One time setup: Install python 3, create a virtual env, and install requirements, set up Google maps API key (see section below for info).
 
 ```
 python3 -m venv venv
@@ -19,6 +19,11 @@ To run: tune constants in the script and then run the script.
 env GOOGLE_MAPS_KEY="YOUR_API_KEY" python main.py
 ```
 
+Command line args:
+--input_vl_file: path to voting location / open spots file
+--use_open_spots: uses "open spots mode" for the voting location input. See **Input files** section under **voting_locs.csv** for more info.
+--do_it: Actually call out to google maps.
+
 ## Algorithm
 - Matches up to `PER_LOCATION_QUOTA` volunteers per voting location in a round-robin manner by rank. For all voting locations with the same rank, attempt to assign one volunteer to each, then assign another to all locations until we reach the quota.
 - If volunteers only have county preference "Send me anywhere!", they will be slotted wherever volunteers are needed.
@@ -27,6 +32,7 @@ env GOOGLE_MAPS_KEY="YOUR_API_KEY" python main.py
 - If a volunteer provides an address and county preference, they won't be matched more than distance of `MAX_DURATION_SEC` seconds.
 - If a volunteer doesn't preference a county, but a voting location in that county is within our distance threshold, the volunteer won't be matched.
 - When running multiple dates at a time, we will preference matching volunteers at the same location as they have been before.
+- In open spots mode, we use (van_precinct_id, county, voting_location) as a voting location's unique key. Because voting location names aren't unique, we have a few duplicates (LDS churches). Before processing, any voting locations that end up with more than 2 open spots are printed out. Should stop the script and make the voting location names be unique before running again. 
 
 ## Input files
 ### voting_locs.csv
@@ -39,6 +45,21 @@ Columns:
 - voting_location: Name of the voting location
 - voting_addr: Address of voting location. Must be searchable in Google maps. Can use custom maps import functionality to check these locations.
 - dates: Comma-separated list of dates that the location is open. Dates should be formatted like "MM/DD"
+
+### Open Spots Mode
+For input sheets with one open spot per row, instead of one voting location per row. We use this for subsequent runs for election day. This is the same output as the **open_spots.csv** output file.
+
+NOTE: From election day schedule, must remove rows that already have volunteers matched. 
+
+Columns:
+- rank: Integer representing how to prioritize the voting location. Lower number is higher priority. Doesn't have to be unique.
+- id: The ID of the open spot
+- county: County name, must correspond to counties in **volunteers.csv**
+- precinct_name: Name of the precinct, used for logging in output
+- voting_location: Name of the voting location
+- voting_addr: Address of voting location. Must be searchable in Google maps. Can use custom maps import functionality to check these locations.
+- dates: Comma-separated list of dates that the location is open. Dates should be formatted like "MM/DD"
+
 
 ### volunteers.csv
 These are all the volunteers willing to be matched:
@@ -79,17 +100,64 @@ Columns:
 - County Preference: Same county preference as row input in **volunteers.csv**
 
 ### output/{date}_open_spots.csv
-All voting locations with open spots for the date.
-Can import into google custom maps with **output/{date}_unmatched.csv** to match extra volunteers.
+All spots still needing to be filled. Can be run with a new batch of volunteers using the flag `--use_open_spots`.
 
 Columns:
-- Date: Date that the location has open spots
-- Rank: Rank of voting location
-- County: County of voting location
-- Name: Precinct name
-- Voting location: Name of voting location
-- Address: Street address of voting location
-- Num Open Spots: Number of spots still available
+- rank: Integer representing how to prioritize the voting location. Lower number is higher priority. Doesn't have to be unique.
+- id: The ID of the open spot
+- county: County name, must correspond to counties in **volunteers.csv**
+- precinct_name: Name of the precinct, used for logging in output
+- voting_location: Name of the voting location
+- voting_addr: Address of voting location. Must be searchable in Google maps. Can use custom maps import functionality to check these locations.
+- dates: Comma-separated list of dates that the location is open. Dates should be formatted like "MM/DD"
 
 ### logs/directions_log_{timestamp}.txt
 Records all responses from the Distance Matrix API. Useful for debugging if addresses can't be found by Google Maps. 
+
+## Setting up Google Maps API Key
+Create a new GCP project (should generate $300 in credits if you don't already use GCP) in the GCP console.
+
+On the home page, search "Distance Matrix API" in the searchbar. Enable the integration. (This comes with $200 in credits per month for this API).
+
+Note that 1000 elements queried costs $5. 
+
+To get API Key:
+- Click "Manage" on the Distance Matrix API page.
+- Click on "Credentials"
+- Create a new API key
+- Use this API key when calling the script.
+
+
+# dedupe_vols.py Script
+
+This script takes in csvs of assigned volunteers and volunteers we will try to assign and filters out any assigned volunteers from the new list. It then dumps this filtered data into a new output file.
+
+## How to run
+```
+python dedupe_vols.py --assigned_vols_file={path/to/filename.csv} --input_vols_file={path/to/filename.csv}
+```
+
+
+## Algorithm
+Does string matching to see if a first name/last name pair appears anywhere in the `assigned` column of the assigned volunteers. This way if there are multiple people assigned, any name in the list will match.
+
+## Input file: assigned volunteers
+
+Columns:
+- id: The ID of the assigment
+- assigned: The names of people assigned to the spot
+
+## Input file: input volunteers
+
+Columns:
+- first_name: First name of the volunteer
+- last_name: Last name of the volunteer
+
+## Output:
+
+Output will be put in a file called `deduped_vols_{timestamp}.csv`.
+
+This will contain all of the data in the input volunteers file but with any rows filtered out where the volunteer's name is in the assigned file.
+
+
+

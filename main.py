@@ -19,9 +19,6 @@ PER_LOCATION_QUOTA = 2
 # NOTE: Google maps charges for number of elements -- len(origins) x len(destinations)
 BATCH_SIZE = 1
 
-# Whether to actually call google maps
-DRY_RUN = True
-
 # The dates to match on
 DATES = ['11/3']
 
@@ -74,6 +71,7 @@ class Volunteer:
 	def __getitem__(self, attr):
 		return self._row[attr]
 
+ids = ['A', 'B', 'C']
 
 class VotingLoc:
 	"""
@@ -87,17 +85,21 @@ class VotingLoc:
 			- voting_addr
 			- dates
 			- van_precinct_id
+		open_spots: Number of spots to fill
+		ids: The ids of the open spots
 	"""
-	def __init__(self, row, row_id, open_spots=PER_LOCATION_QUOTA):
+	def __init__(self, row, row_id, open_ids=None):
 		self._row = row
 		self.id = row_id
-		self.open_spots = open_spots
+		self.open_spots = len(open_ids) if open_ids else PER_LOCATION_QUOTA
+		self.ids = open_ids or [self._row['rank'].strip() + ids[i] for i in range(self.open_spots)]
 
 	def __getitem__(self, attr):
 		return self._row[attr]
 
-	def add_open_spot(self):
+	def add_open_spot(self, open_spot_id):
 		self.open_spots += 1
+		self.ids.append(open_spot_id)
 
 	def key():
 		return get_vl_key(self._row)
@@ -140,10 +142,10 @@ def load_voting_locs(input_vl_file, use_open_spots):
 		for row in reader:
 			vl_key = get_vl_key(row)
 			if vl_key not in voting_loc_by_key:
-				voting_loc_by_key[vl_key] = VotingLoc(row, i, open_spots=1)
+				voting_loc_by_key[vl_key] = VotingLoc(row, i, open_ids=[row['id']])
 				i += 1
 			else:
-				voting_loc_by_key[vl_key].add_open_spot()
+				voting_loc_by_key[vl_key].add_open_spot(row['id'])
 	return list(voting_loc_by_key.values())
 
 
@@ -311,28 +313,29 @@ def match_by_date(date, volunteers_by_county, voting_locs, vols_by_id, raw_volun
 		csv_writer.writerow(['Date', 'Name', 'Address', 'County Preference'])
 		for v in raw_volunteers:
 			if v.id not in matched and date in v['date_preference']:
-				csv_writer.writerow([date, f"{v['first_name']} {v['last_name']}", v.addr_str, v['county_preference']])
+				csv_writer.writerow([date, f"{v['first_name'].strip()} {v['last_name'].strip()}", v.addr_str, v['county_preference']])
 
 	with open(f'output/{filename_date}_matched.csv', 'w', newline='') as matched:
 		csv_writer = csv.writer(matched, delimiter=',')
-		csv_writer.writerow(['Date', 'Rank', 'County', 'Precinct Name', 'Voting Location', 'Volunteer', 'Vol Addr', 'Vol Duration'])
+		csv_writer.writerow(['Date', 'ID', 'Rank', 'County', 'Precinct Name', 'Voting Location', 'Volunteer', 'Vol Addr', 'Vol Duration'])
 		for vl in voting_locs:
+			ids = set(vl.ids)
 			matched = matched_volunteers_by_loc[vl.id]
 			for v, duration in matched:
-				csv_writer.writerow([date, vl['rank'], vl['county'], vl['precinct_name'].strip(), vl['voting_location'].strip(), f"{vols_by_id[v]['first_name']} {vols_by_id[v]['last_name']}", vols_by_id[v].addr_str, duration['text']])
+				csv_writer.writerow([date, ids.pop(), vl['rank'], vl['county'], vl['precinct_name'].strip(), vl['voting_location'].strip(), f"{vols_by_id[v]['first_name'].strip()} {vols_by_id[v]['last_name'].strip()}", vols_by_id[v].addr_str, duration['text']])
 		
 			if open_spots_by_voting_loc.get(vl.id):
 				for i in range(open_spots_by_voting_loc[vl.id]):
-					csv_writer.writerow([date, vl['rank'], vl['county'], vl['precinct_name'].strip(), vl['voting_location'].strip(), 'Unfilled', '', ''])
+					csv_writer.writerow([date, ids.pop(), vl['rank'], vl['county'], vl['precinct_name'].strip(), vl['voting_location'].strip(), 'Unfilled', '', ''])
 
 
 	with open(f'output/{filename_date}_open_spots.csv', 'w', newline='') as open_spots:
 		csv_writer = csv.writer(open_spots, delimiter=',')
-		csv_writer.writerow(['dates', 'rank', 'van_precinct_id', 'county', 'precinct_name', 'voting_location', 'voting_addr'])
+		csv_writer.writerow(['dates', 'id', 'rank', 'van_precinct_id', 'county', 'precinct_name', 'voting_location', 'voting_addr'])
 		for vl_id, num_spots in open_spots_by_voting_loc.items():
 			vl = vls_by_id[vl_id]
 			for i in range(num_spots):
-				csv_writer.writerow([date, vl['rank'], vl['van_precinct_id'], vl['county'], vl['precinct_name'].strip(), vl['voting_location'].strip(), vl['voting_addr'].strip()])
+				csv_writer.writerow([date, vl.ids[len(vl.ids) - 1 - i], vl['rank'], vl['van_precinct_id'], vl['county'], vl['precinct_name'].strip(), vl['voting_location'].strip(), vl['voting_addr'].strip()])
 
 
 def voting_loc_has_date(d, vl):
@@ -385,8 +388,12 @@ def run(input_vl_file, use_open_spots):
 parser = argparse.ArgumentParser()
 parser.add_argument('--input_vl_file', nargs='?')
 parser.add_argument('--use_open_spots', type=bool, nargs='?', const=True)
+parser.add_argument('--do_it', type=bool, nargs='?', const=True)
 
 args = parser.parse_args()
+
+# Whether to call google maps or not
+DRY_RUN = not args.do_it
 
 print(f"Start time: {str(datetime.datetime.now())}")
 run(input_vl_file=args.input_vl_file, use_open_spots=args.use_open_spots)
